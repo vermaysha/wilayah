@@ -1,0 +1,181 @@
+# Nama alur kerja yang akan ditampilkan di tab Actions di GitHub
+name: Manual Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_bump:
+        description: 'Pilih jenis kenaikan versi'
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+jobs:
+  prepare:
+    name: Prepare Version
+    runs-on: ubuntu-latest
+
+    outputs:
+      new_version: ${{ steps.bump.outputs.new_version }}
+      new_version_tag: ${{ steps.bump.outputs.new_version_tag }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 'latest'
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Bump version
+        id: bump
+        run: |
+          # Bump version di package.json
+          case "${{ github.event.inputs.version_bump }}" in
+            major)
+              NEW_VERSION=$(bun pm version major --no-git-tag-version)
+              ;;
+            minor)
+              NEW_VERSION=$(bun pm version minor --no-git-tag-version)
+              ;;
+            patch)
+              NEW_VERSION=$(bun pm version patch --no-git-tag-version)
+              ;;
+          esac
+          echo "new_version=${NEW_VERSION}" >> $GITHUB_OUTPUT
+          echo "new_version_tag=${NEW_VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Upload package.json
+        uses: actions/upload-artifact@v7
+        with:
+          name: package-json
+          path: package.json
+          retention-days: 1
+
+  build:
+    name: Build ${{ matrix.name }}
+    needs: prepare
+    runs-on: ${{ matrix.runner }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows
+            runner: windows-latest
+            target: windows
+          - name: Linux x64
+            runner: ubuntu-latest
+            target: linux
+          # - name: Linux ARM64
+          #   runner: ubuntu-24.04-arm
+          #   target: linux-arm64
+          - name: macOS
+            runner: macos-latest
+            target: macos
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Download package.json
+        uses: actions/download-artifact@v8
+        with:
+          name: package-json
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 'latest'
+
+      - name: Cache Bun dependencies
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.bun/install/cache
+            node_modules
+          key: ${{ runner.os }}-bun-${{ hashFiles('**/bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Type check
+        run: bun tsc --noEmit
+
+      - name: Build binary
+        env:
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          NODE_ENV: production
+          TZ: Asia/Jakarta
+        run: bun ./build.ts ${{ matrix.target }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: binary-${{ matrix.target }}
+          path: ./out/*
+          retention-days: 1
+
+  push:
+    name: Push Version and Tag
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Download package.json
+        uses: actions/download-artifact@v8
+        with:
+          name: package-json
+
+      - name: Configure Git
+        run: |
+          git config user.name "GitHub Actions Bot"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Commit and Tag
+        run: |
+          git add package.json
+          git commit -m "chore(release): bump version to ${{ needs.prepare.outputs.new_version }}"
+          git tag ${{ needs.prepare.outputs.new_version_tag }}
+
+      - name: Push changes and tags
+        run: git push origin ${{ github.ref_name }} --follow-tags
+
+  release:
+    name: Create GitHub Release
+    needs: [prepare, push]
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: ./out
+          pattern: binary-*
+          merge-multiple: true
+
+      - name: Create GitHub Release and Upload Assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prepare.outputs.new_version_tag }}
+          name: Release ${{ needs.prepare.outputs.new_version_tag }}
+          generate_release_notes: true
+          files: ./out/*

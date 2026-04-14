@@ -1,0 +1,19 @@
+{
+  "name": "wilayah-api",
+  "version": "0.0.0",
+  "description": "API Wilayah Indonesia",
+  "module": "src/index.ts",
+  "type": "module",
+  "private": true,
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "scripts": {
+    "start": "bun ./src/index.ts",
+    "populate": "bun ./populate.ts",
+    "build": "bun build src/index.ts --outdir dist --format cjs,esm --target node18 --minify"
+  }
+}
