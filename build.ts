@@ -18,7 +18,7 @@ const allPlatforms: Record<string, Bun.CompileBuildOptions> = {
     },
   },
   linux: { target: 'bun-linux-x64', outfile: `wilayah-linux-${version}` },
-  // macos: { target: 'bun-darwin-arm64', outfile: `wilayah-macos-${version}` },
+  macos: { target: 'bun-darwin-arm64', outfile: `wilayah-macos-${version}` },
   'linux-arm64': {
     target: 'bun-linux-arm64',
     outfile: `wilayah-linux-arm64-musl-${version}`,
