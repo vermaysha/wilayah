@@ -1,6 +1,6 @@
 {
   "name": "wilayah-api",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "API Wilayah Indonesia",
   "module": "src/index.ts",
   "type": "module",
